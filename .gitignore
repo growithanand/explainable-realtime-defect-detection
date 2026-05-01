@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+
+# Environments
+.env
+venv/
+.venv/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Data and artifacts
+# Keep folder structure with .gitkeep, but avoid committing large files.
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+models/*.pth
+models/*.pt
+models/*.onnx
+
+outputs/predictions/*
+outputs/heatmaps/*
+reports/figures/*
+!outputs/predictions/.gitkeep
+!outputs/heatmaps/.gitkeep
+!reports/figures/.gitkeep
