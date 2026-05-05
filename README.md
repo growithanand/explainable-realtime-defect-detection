@@ -153,7 +153,3 @@ Streamlit app:
 ```bash
 streamlit run app/streamlit_app.py
 ```
-
-## Notes
-
-This starter repo gives you structure and scaffolding. The first serious task is preparing the dataset correctly.

@@ -1,58 +1,34 @@
 from pathlib import Path
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from typing import Callable, Optional, List, Tuple
+
+from PIL import Image
+from torch.utils.data import Dataset
 
 
-def get_transforms(image_size: int = 224):
-    train_transform = transforms.Compose([
-        transforms.Resize((image_size, image_size)),
-        transforms.RandomHorizontalFlip(p=0.5),
-        transforms.RandomRotation(degrees=10),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225]),
-    ])
-
-    eval_transform = transforms.Compose([
-        transforms.Resize((image_size, image_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225]),
-    ])
-
-    return train_transform, eval_transform
-
-
-def create_dataloaders(data_dir: str | Path, image_size: int = 224, batch_size: int = 16, num_workers: int = 0):
+class ImageClassificationDataset(Dataset):
     """
-    Expected folder structure:
+    Generic image classification dataset.
 
-    data_dir/
-      train/
-        normal/
-        defective/
-      test/
-        normal/
-        defective/
+    samples: list of (image_path, label)
     """
-    data_dir = Path(data_dir)
-    train_transform, eval_transform = get_transforms(image_size)
 
-    train_dataset = datasets.ImageFolder(data_dir / "train", transform=train_transform)
-    test_dataset = datasets.ImageFolder(data_dir / "test", transform=eval_transform)
+    def __init__(
+        self,
+        samples: List[Tuple[str, int]],
+        transform: Optional[Callable] = None,
+    ):
+        self.samples = samples
+        self.transform = transform
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-    )
+    def __len__(self):
+        return len(self.samples)
 
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-    )
+    def __getitem__(self, index):
+        image_path, label = self.samples[index]
 
-    return train_loader, test_loader, train_dataset.classes
+        image = Image.open(image_path).convert("RGB")
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
