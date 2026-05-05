@@ -16,20 +16,42 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Data and artifacts
-# Keep folder structure with .gitkeep, but avoid committing large files.
+# Datasets
+# Keep dataset folders local; do not commit large image files.
+data/mvtec_ad/*
 data/raw/*
 data/processed/*
+
+!data/.gitkeep
+!data/mvtec_ad/.gitkeep
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
+# Model weights / exported models
 models/*.pth
 models/*.pt
 models/*.onnx
+models/*.pkl
+models/*.joblib
 
+# Outputs and generated artifacts
 outputs/predictions/*
 outputs/heatmaps/*
+outputs/misclassifications/*
 reports/figures/*
+
+!outputs/.gitkeep
 !outputs/predictions/.gitkeep
 !outputs/heatmaps/.gitkeep
+!outputs/misclassifications/.gitkeep
+!reports/.gitkeep
 !reports/figures/.gitkeep
+
+# Logs
+*.log
+runs/
+wandb/
+mlruns/
+
+# Jupyter
+.notebooks_checkpoints/
