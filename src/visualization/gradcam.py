@@ -1,36 +1,88 @@
-"""
-Minimal Grad-CAM placeholder.
-
-This file is intentionally lightweight at the start. First get training and real-time
-classification working. Then implement Grad-CAM here.
-
-Planned flow:
-1. Register hooks on the final convolution layer.
-2. Run a forward pass.
-3. Backpropagate the target class score.
-4. Weight activation maps by gradients.
-5. Overlay the heatmap on the original image/frame.
-"""
-
 import cv2
 import numpy as np
+import torch
+import torch.nn.functional as F
 
 
-def overlay_heatmap(frame_bgr: np.ndarray, heatmap: np.ndarray, alpha: float = 0.4) -> np.ndarray:
-    """Overlay a normalized heatmap on a BGR frame."""
-    heatmap = np.uint8(255 * heatmap)
-    heatmap = cv2.resize(heatmap, (frame_bgr.shape[1], frame_bgr.shape[0]))
-    heatmap_color = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-    overlay = cv2.addWeighted(frame_bgr, 1 - alpha, heatmap_color, alpha, 0)
+class GradCAM:
+    """
+    Grad-CAM implementation for CNN-based image classification models.
+    """
+
+    def __init__(self, model, target_layer):
+        self.model = model
+        self.target_layer = target_layer
+
+        self.activations = None
+        self.gradients = None
+
+        self.forward_hook = self.target_layer.register_forward_hook(
+            self._save_activations
+        )
+
+        self.backward_hook = self.target_layer.register_full_backward_hook(
+            self._save_gradients
+        )
+
+    def _save_activations(self, module, input, output):
+        self.activations = output.detach()
+
+    def _save_gradients(self, module, grad_input, grad_output):
+        self.gradients = grad_output[0].detach()
+
+    def generate(self, input_tensor, target_class=None):
+        """
+        input_tensor shape: [1, 3, H, W]
+        """
+
+        output = self.model(input_tensor)
+
+        if target_class is None:
+            target_class = output.argmax(dim=1).item()
+
+        self.model.zero_grad(set_to_none=True)
+
+        score = output[:, target_class].sum()
+        score.backward(retain_graph=True)
+
+        weights = self.gradients.mean(dim=(2, 3), keepdim=True)
+
+        cam = (weights * self.activations).sum(dim=1, keepdim=True)
+        cam = F.relu(cam)
+
+        cam = F.interpolate(
+            cam,
+            size=input_tensor.shape[-2:],
+            mode="bilinear",
+            align_corners=False,
+        )
+
+        cam = cam.squeeze().cpu().numpy()
+
+        cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
+
+        return cam, output
+
+    def remove_hooks(self):
+        self.forward_hook.remove()
+        self.backward_hook.remove()
+
+
+def overlay_cam_on_image(image, cam, alpha=0.45):
+    """
+    image: PIL image or RGB numpy array
+    cam: normalized Grad-CAM heatmap
+    """
+
+    if not isinstance(image, np.ndarray):
+        image = np.array(image.convert("RGB"))
+
+    cam_resized = cv2.resize(cam, (image.shape[1], image.shape[0]))
+
+    heatmap = np.uint8(255 * cam_resized)
+    heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
+    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
+
+    overlay = (alpha * heatmap + (1 - alpha) * image).astype(np.uint8)
+
     return overlay
-
-
-def dummy_heatmap(frame_bgr: np.ndarray) -> np.ndarray:
-    """Temporary heatmap for UI testing before real Grad-CAM is implemented."""
-    h, w = frame_bgr.shape[:2]
-    y, x = np.ogrid[:h, :w]
-    center_y, center_x = h // 2, w // 2
-    radius = min(h, w) / 4
-    heatmap = np.exp(-((x - center_x) ** 2 + (y - center_y) ** 2) / (2 * radius ** 2))
-    heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-    return heatmap
