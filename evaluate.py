@@ -1,54 +1,158 @@
-import argparse
+from pathlib import Path
 
 import torch
-from sklearn.metrics import classification_report, confusion_matrix
+from torch.utils.data import DataLoader
+from torchvision import transforms
 
-from src.data.dataset import create_dataloaders
-from src.models.model import load_model
-from src.utils.helpers import get_device
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    classification_report,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+)
 
+import matplotlib.pyplot as plt
 
-@torch.inference_mode()
-def collect_predictions(model, dataloader, device):
-    y_true, y_pred = [], []
-    model.eval()
-
-    for images, labels in dataloader:
-        images = images.to(device)
-        logits = model(images)
-        preds = torch.argmax(logits, dim=1).cpu().numpy().tolist()
-
-        y_pred.extend(preds)
-        y_true.extend(labels.numpy().tolist())
-
-    return y_true, y_pred
+from src.data.prepare_data import create_train_val_test_split
+from src.data.dataset import ImageClassificationDataset
+from src.models.model import create_resnet18_binary_model
 
 
-def main(args):
-    device = get_device()
-    _, test_loader, class_names = create_dataloaders(
-        data_dir=args.data_dir,
-        image_size=args.image_size,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
+# -------------------------
+# Configuration
+# -------------------------
+
+DATA_DIR = "data/mvtec_ad/bottle"
+MODEL_PATH = "models/resnet18_bottle_binary.pth"
+OUTPUT_DIR = "outputs"
+
+BATCH_SIZE = 16
+IMAGE_SIZE = 224
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+CLASS_NAMES = ["normal", "defective"]
+
+
+# -------------------------
+# Transform
+# -------------------------
+
+eval_transform = transforms.Compose([
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+    ),
+])
+
+
+# -------------------------
+# Data
+# -------------------------
+
+splits = create_train_val_test_split(DATA_DIR)
+
+test_dataset = ImageClassificationDataset(
+    samples=splits["test"],
+    transform=eval_transform,
+)
+
+test_loader = DataLoader(
+    test_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+)
+
+
+# -------------------------
+# Load model
+# -------------------------
+
+model = create_resnet18_binary_model(pretrained=False)
+
+model.load_state_dict(
+    torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)
+)
+
+model = model.to(DEVICE)
+model.eval()
+
+
+# -------------------------
+# Evaluation
+# -------------------------
+
+all_labels = []
+all_predictions = []
+
+with torch.inference_mode():
+    for images, labels in test_loader:
+        images = images.to(DEVICE)
+        labels = labels.to(DEVICE)
+
+        outputs = model(images)
+
+        predictions = torch.argmax(outputs, dim=1)
+
+        all_labels.extend(labels.cpu().numpy())
+        all_predictions.extend(predictions.cpu().numpy())
+
+
+# -------------------------
+# Metrics
+# -------------------------
+
+accuracy = accuracy_score(all_labels, all_predictions)
+precision = precision_score(all_labels, all_predictions, zero_division=0)
+recall = recall_score(all_labels, all_predictions, zero_division=0)
+f1 = f1_score(all_labels, all_predictions, zero_division=0)
+
+print(f"Using device: {DEVICE}")
+print(f"Test samples: {len(test_dataset)}")
+
+print("\nEvaluation Metrics")
+print("-" * 30)
+print(f"Accuracy : {accuracy:.4f}")
+print(f"Precision: {precision:.4f}")
+print(f"Recall   : {recall:.4f}")
+print(f"F1-score : {f1:.4f}")
+
+print("\nClassification Report")
+print("-" * 30)
+print(
+    classification_report(
+        all_labels,
+        all_predictions,
+        target_names=CLASS_NAMES,
+        zero_division=0,
     )
-
-    model = load_model(args.checkpoint, device=device, num_classes=len(class_names))
-    y_true, y_pred = collect_predictions(model, test_loader, device)
-
-    print("Classification report:")
-    print(classification_report(y_true, y_pred, target_names=class_names))
-
-    print("Confusion matrix:")
-    print(confusion_matrix(y_true, y_pred))
+)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Evaluate trained defect detection model")
-    parser.add_argument("--data_dir", type=str, required=True)
-    parser.add_argument("--checkpoint", type=str, required=True)
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--image_size", type=int, default=224)
-    parser.add_argument("--num_workers", type=int, default=0)
-    args = parser.parse_args()
-    main(args)
+# -------------------------
+# Confusion Matrix
+# -------------------------
+
+cm = confusion_matrix(all_labels, all_predictions)
+
+disp = ConfusionMatrixDisplay(
+    confusion_matrix=cm,
+    display_labels=CLASS_NAMES,
+)
+
+disp.plot()
+
+Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+
+confusion_matrix_path = Path(OUTPUT_DIR) / "confusion_matrix.png"
+
+plt.title("Confusion Matrix - Bottle Defect Detection")
+plt.savefig(confusion_matrix_path, bbox_inches="tight")
+plt.show()
+
+print(f"\nSaved confusion matrix to: {confusion_matrix_path}")

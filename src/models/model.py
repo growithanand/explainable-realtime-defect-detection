@@ -1,28 +1,26 @@
-import torch
-from torch import nn
+import torch.nn as nn
 from torchvision import models
 
 
-def build_resnet18(num_classes: int = 2, pretrained: bool = True) -> nn.Module:
-    """Build a ResNet18 classifier for normal/defective classification."""
-    weights = models.ResNet18_Weights.DEFAULT if pretrained else None
+def create_resnet18_binary_model(pretrained: bool = True):
+    """
+    Creates a ResNet18 model for binary classification.
+
+    Classes:
+        0 = normal
+        1 = defective
+    """
+
+    if pretrained:
+        weights = models.ResNet18_Weights.DEFAULT
+    else:
+        weights = None
+
     model = models.resnet18(weights=weights)
 
+    # ResNet18 originally outputs 1000 classes.
+    # We replace the final layer so it outputs 2 classes.
     in_features = model.fc.in_features
-    model.fc = nn.Linear(in_features, num_classes)
-    return model
+    model.fc = nn.Linear(in_features, 2)
 
-
-def load_model(checkpoint_path: str, device: torch.device, num_classes: int = 2) -> nn.Module:
-    """Load a trained ResNet18 model from a checkpoint."""
-    model = build_resnet18(num_classes=num_classes, pretrained=False)
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
-
-    if "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
-    else:
-        model.load_state_dict(checkpoint)
-
-    model.to(device)
-    model.eval()
     return model

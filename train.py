@@ -1,113 +1,179 @@
-import argparse
+from pathlib import Path
 
 import torch
-from torch import nn, optim
+import torch.nn as nn
+from torch.utils.data import DataLoader
+from torchvision import transforms
 from tqdm import tqdm
 
-from src.data.dataset import create_dataloaders
-from src.models.model import build_resnet18
-from src.utils.config import TrainingConfig, ProjectPaths
-from src.utils.helpers import get_device, save_checkpoint, set_seed
+from src.data.prepare_data import create_train_val_test_split
+from src.data.dataset import ImageClassificationDataset
+from src.models.model import create_resnet18_binary_model
+
+
+DATA_DIR = "data/mvtec_ad/bottle"
+MODEL_SAVE_PATH = "models/resnet18_bottle_binary.pth"
+
+BATCH_SIZE = 16
+NUM_EPOCHS = 10
+LEARNING_RATE = 1e-4
+IMAGE_SIZE = 224
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+train_transform = transforms.Compose([
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+    ),
+])
+
+eval_transform = transforms.Compose([
+    transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225],
+    ),
+])
+
+
+splits = create_train_val_test_split(DATA_DIR)
+
+train_dataset = ImageClassificationDataset(
+    samples=splits["train"],
+    transform=train_transform,
+)
+
+val_dataset = ImageClassificationDataset(
+    samples=splits["val"],
+    transform=eval_transform,
+)
+
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=True,
+)
+
+val_loader = DataLoader(
+    val_dataset,
+    batch_size=BATCH_SIZE,
+    shuffle=False,
+)
+
+
+model = create_resnet18_binary_model(pretrained=True)
+model = model.to(DEVICE)
+
+loss_fn = nn.CrossEntropyLoss()
+
+optimizer = torch.optim.Adam(
+    model.parameters(),
+    lr=LEARNING_RATE,
+)
 
 
 def train_one_epoch(model, dataloader, loss_fn, optimizer, device):
     model.train()
-    total_loss = 0.0
+
+    total_loss = 0
     correct = 0
     total = 0
 
-    for images, labels in tqdm(dataloader, desc="Training", leave=False):
-        images, labels = images.to(device), labels.to(device)
+    for images, labels in tqdm(dataloader, desc="Training"):
+        images = images.to(device)
+        labels = labels.to(device)
 
-        logits = model(images)
-        loss = loss_fn(logits, labels)
+        outputs = model(images)
+        loss = loss_fn(outputs, labels)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
-        total_loss += loss.item() * images.size(0)
-        preds = torch.argmax(logits, dim=1)
-        correct += (preds == labels).sum().item()
+        total_loss += loss.item()
+
+        predictions = torch.argmax(outputs, dim=1)
+        correct += (predictions == labels).sum().item()
         total += labels.size(0)
 
-    return total_loss / total, correct / total
+    avg_loss = total_loss / len(dataloader)
+    accuracy = correct / total
+
+    return avg_loss, accuracy
 
 
-@torch.inference_mode()
 def evaluate(model, dataloader, loss_fn, device):
     model.eval()
-    total_loss = 0.0
+
+    total_loss = 0
     correct = 0
     total = 0
 
-    for images, labels in tqdm(dataloader, desc="Evaluating", leave=False):
-        images, labels = images.to(device), labels.to(device)
+    with torch.inference_mode():
+        for images, labels in tqdm(dataloader, desc="Validation"):
+            images = images.to(device)
+            labels = labels.to(device)
 
-        logits = model(images)
-        loss = loss_fn(logits, labels)
+            outputs = model(images)
+            loss = loss_fn(outputs, labels)
 
-        total_loss += loss.item() * images.size(0)
-        preds = torch.argmax(logits, dim=1)
-        correct += (preds == labels).sum().item()
-        total += labels.size(0)
+            total_loss += loss.item()
 
-    return total_loss / total, correct / total
+            predictions = torch.argmax(outputs, dim=1)
+            correct += (predictions == labels).sum().item()
+            total += labels.size(0)
+
+    avg_loss = total_loss / len(dataloader)
+    accuracy = correct / total
+
+    return avg_loss, accuracy
 
 
-def main(args):
-    set_seed(args.seed)
-    cfg = TrainingConfig(
-        image_size=args.image_size,
-        batch_size=args.batch_size,
-        epochs=args.epochs,
-        learning_rate=args.lr,
+print(f"Using device: {DEVICE}")
+print(f"Train samples: {len(train_dataset)}")
+print(f"Val samples: {len(val_dataset)}")
+
+best_val_loss = float("inf")
+
+for epoch in range(NUM_EPOCHS):
+    print(f"\nEpoch {epoch + 1}/{NUM_EPOCHS}")
+
+    train_loss, train_acc = train_one_epoch(
+        model=model,
+        dataloader=train_loader,
+        loss_fn=loss_fn,
+        optimizer=optimizer,
+        device=DEVICE,
     )
-    paths = ProjectPaths()
-    device = get_device()
 
-    print(f"Using device: {device}")
-
-    train_loader, test_loader, class_names = create_dataloaders(
-        data_dir=args.data_dir,
-        image_size=cfg.image_size,
-        batch_size=cfg.batch_size,
-        num_workers=args.num_workers,
+    val_loss, val_acc = evaluate(
+        model=model,
+        dataloader=val_loader,
+        loss_fn=loss_fn,
+        device=DEVICE,
     )
 
-    print(f"Classes: {class_names}")
+    print(
+        f"Train Loss: {train_loss:.4f} | "
+        f"Train Acc: {train_acc:.4f} | "
+        f"Val Loss: {val_loss:.4f} | "
+        f"Val Acc: {val_acc:.4f}"
+    )
 
-    model = build_resnet18(num_classes=len(class_names), pretrained=True).to(device)
-    loss_fn = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=cfg.learning_rate)
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
 
-    best_acc = 0.0
-    checkpoint_path = paths.models_dir / cfg.checkpoint_name
+        Path("models").mkdir(parents=True, exist_ok=True)
 
-    for epoch in range(cfg.epochs):
-        train_loss, train_acc = train_one_epoch(model, train_loader, loss_fn, optimizer, device)
-        test_loss, test_acc = evaluate(model, test_loader, loss_fn, device)
-
-        print(
-            f"Epoch {epoch+1:03d}/{cfg.epochs} | "
-            f"Train loss: {train_loss:.4f}, Train acc: {train_acc:.4f} | "
-            f"Test loss: {test_loss:.4f}, Test acc: {test_acc:.4f}"
+        torch.save(
+            model.state_dict(),
+            MODEL_SAVE_PATH,
         )
 
-        if test_acc > best_acc:
-            best_acc = test_acc
-            save_checkpoint(model, checkpoint_path, class_names=class_names)
-            print(f"Saved best model to {checkpoint_path}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train defect detection classifier")
-    parser.add_argument("--data_dir", type=str, required=True, help="Path to processed dataset category folder")
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--image_size", type=int, default=224)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--num_workers", type=int, default=0, help="Use 0 on Windows if multiprocessing causes issues")
-    args = parser.parse_args()
-    main(args)
+        print(f"Saved best model to {MODEL_SAVE_PATH}")
