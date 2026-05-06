@@ -19,11 +19,13 @@ Thumbs.db
 # Datasets
 # Keep dataset folders local; do not commit large image files.
 data/mvtec_ad/*
+data/webcam_bottle_caps/*
 data/raw/*
 data/processed/*
 
 !data/.gitkeep
 !data/mvtec_ad/.gitkeep
+!data/webcam_bottle_caps/.gitkeep
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 
@@ -38,12 +40,14 @@ models/*.joblib
 outputs/predictions/*
 outputs/heatmaps/*
 outputs/misclassifications/*
+outputs/webcam_captures/*
 reports/figures/*
 
 !outputs/.gitkeep
 !outputs/predictions/.gitkeep
 !outputs/heatmaps/.gitkeep
 !outputs/misclassifications/.gitkeep
+!outputs/webcam_captures/.gitkeep
 !reports/.gitkeep
 !reports/figures/.gitkeep
 
