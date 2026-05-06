@@ -1,0 +1,3 @@
+model,accuracy,precision,recall,f1_score
+MVTec baseline model,0.26582278481012656,0.26582278481012656,1.0,0.42
+Webcam fine-tuned model,1.0,1.0,1.0,1.0
