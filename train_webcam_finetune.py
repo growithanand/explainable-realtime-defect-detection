@@ -17,8 +17,8 @@ from src.models.model import create_resnet18_binary_model
 
 DATA_DIR = "data/webcam_bottle_caps"
 
-BASE_MODEL_PATH = "models/resnet18_bottle_binary.pth"
-FINETUNED_MODEL_PATH = "models/resnet18_webcam_caps_finetuned.pth"
+BASE_MODEL_PATH = "models/resnet18_webcam_caps_finetuned.pth"
+FINETUNED_MODEL_PATH = "models/resnet18_webcam_caps_finetuned_v2.pth"
 
 BATCH_SIZE = 16
 NUM_EPOCHS = 12
