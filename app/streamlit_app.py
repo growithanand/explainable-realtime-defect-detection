@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
 from src.inference.predictor import DefectPredictor
+from src.visualization.gradcam import GradCAM, overlay_cam_on_image
 
 
 MODEL_PATH = PROJECT_ROOT / "models" / "resnet18_webcam_caps_finetuned_v2.pth"
@@ -16,12 +17,6 @@ SAMPLE_IMAGE_DIR = PROJECT_ROOT / "assets" / "sample_images"
 
 
 def center_crop_square(image: Image.Image, crop_scale: float = 0.75) -> Image.Image:
-    """
-    Crops a centered square region from the uploaded image.
-
-    This is useful for phone images because the model was trained mostly on
-    fixed webcam ROI-style crops.
-    """
     image = ImageOps.exif_transpose(image).convert("RGB")
 
     width, height = image.size
@@ -36,13 +31,6 @@ def center_crop_square(image: Image.Image, crop_scale: float = 0.75) -> Image.Im
 
 
 def make_pretty_name(path: Path) -> str:
-    """
-    Converts file names like:
-        defective_torn_red_cap.png
-
-    into:
-        🔴 Defective Torn Red Cap
-    """
     name = path.stem.replace("_", " ").title()
 
     if path.stem.lower().startswith("defective"):
@@ -55,13 +43,6 @@ def make_pretty_name(path: Path) -> str:
 
 
 def infer_expected_label(path: Path) -> str:
-    """
-    Infers the expected label from the sample image filename.
-
-    Filenames should start with:
-        normal_
-        defective_
-    """
     stem = path.stem.lower()
 
     if stem.startswith("defective"):
@@ -79,6 +60,40 @@ def load_predictor():
         model_path=MODEL_PATH,
         defect_threshold=0.5,
     )
+
+
+def generate_gradcam_image(
+    predictor: DefectPredictor,
+    image: Image.Image,
+    target_label: int,
+) -> Image.Image:
+    """
+    Generates Grad-CAM overlay for the selected image.
+    """
+    input_tensor = predictor.transform(image)
+    input_tensor = input_tensor.unsqueeze(0).to(predictor.device)
+
+    target_layer = predictor.model.layer4[-1]
+
+    grad_cam = GradCAM(
+        model=predictor.model,
+        target_layer=target_layer,
+    )
+
+    cam, _ = grad_cam.generate(
+        input_tensor=input_tensor,
+        target_class=target_label,
+    )
+
+    grad_cam.remove_hooks()
+
+    overlay_rgb = overlay_cam_on_image(
+        image=image,
+        cam=cam,
+        alpha=0.45,
+    )
+
+    return Image.fromarray(overlay_rgb)
 
 
 def show_prediction(result, expected_label: str, threshold: float, input_mode: str):
@@ -175,6 +190,7 @@ image = None
 original_image = None
 image_caption = None
 expected_label = "unknown"
+current_input_id = None
 
 if input_mode == "Try sample image":
     st.subheader("Try Curated Sample Images")
@@ -215,6 +231,7 @@ if input_mode == "Try sample image":
         original_image = image
         image_caption = selected_path.name
         expected_label = infer_expected_label(selected_path)
+        current_input_id = f"sample::{selected_path.name}::{threshold}"
 
         st.info(
             "These sample images are curated from the fixed inspection setup so users can "
@@ -254,6 +271,9 @@ elif input_mode == "Upload your own image":
 
         image_caption = uploaded_file.name
         expected_label = "unknown"
+        current_input_id = (
+            f"upload::{uploaded_file.name}::{threshold}::{use_center_crop}::{crop_scale}"
+        )
 
 if image is not None:
     st.subheader("Input Image")
@@ -293,12 +313,58 @@ if image is not None:
         with st.spinner("Running model inference..."):
             result = predictor.predict(image)
 
+        st.session_state["last_result"] = result
+        st.session_state["last_image"] = image
+        st.session_state["last_expected_label"] = expected_label
+        st.session_state["last_input_mode"] = input_mode
+        st.session_state["last_input_id"] = current_input_id
+        st.session_state["last_threshold"] = threshold
+        st.session_state["last_gradcam"] = None
+
+    has_valid_prediction = (
+        "last_result" in st.session_state
+        and st.session_state.get("last_input_id") == current_input_id
+    )
+
+    if has_valid_prediction:
+        result = st.session_state["last_result"]
+
         show_prediction(
             result=result,
-            expected_label=expected_label,
-            threshold=threshold,
-            input_mode=input_mode,
+            expected_label=st.session_state["last_expected_label"],
+            threshold=st.session_state["last_threshold"],
+            input_mode=st.session_state["last_input_mode"],
         )
+
+        st.subheader("Grad-CAM Explanation")
+
+        st.write(
+            "Grad-CAM highlights the regions that influenced the model's prediction. "
+            "Warmer colors usually indicate stronger influence."
+        )
+
+        generate_heatmap = st.button(
+            "Generate Grad-CAM",
+            use_container_width=True,
+        )
+
+        if generate_heatmap:
+            with st.spinner("Generating Grad-CAM heatmap..."):
+                gradcam_image = generate_gradcam_image(
+                    predictor=predictor,
+                    image=st.session_state["last_image"],
+                    target_label=result["predicted_label"],
+                )
+
+            st.session_state["last_gradcam"] = gradcam_image
+
+        if st.session_state.get("last_gradcam") is not None:
+            st.image(
+                st.session_state["last_gradcam"],
+                caption=f"Grad-CAM for predicted class: {result['predicted_class']}",
+                use_container_width=True,
+            )
+
     else:
         st.info("Click **Run Prediction** to classify this image.")
 
