@@ -48,8 +48,16 @@ reports/figures/*
 !outputs/heatmaps/.gitkeep
 !outputs/misclassifications/.gitkeep
 !outputs/webcam_captures/.gitkeep
+# Reports / README demo assets
+# Keep generated report assets controlled, but allow selected README figures.
 !reports/.gitkeep
+!reports/figures/
 !reports/figures/.gitkeep
+!reports/figures/*.png
+!reports/figures/*.jpg
+!reports/figures/*.jpeg
+!reports/figures/*.gif
+!reports/figures/*.mp4
 
 # Logs
 *.log
