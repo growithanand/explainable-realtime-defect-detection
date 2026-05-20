@@ -16,6 +16,79 @@ Full demo video: [demo_webcam_inspection.mp4](reports/figures/demo_webcam_inspec
 
 ---
 
+## Quick Start / How to Run
+
+> Model weights are not committed to Git. Before running inference, place the fine-tuned model here:
+>
+> ```text
+> models/resnet18_webcam_caps_finetuned_v2.pth
+> ```
+
+### 1. Streamlit Demo UI
+
+Interactive frontend with sample images, upload option, prediction results, and Grad-CAM.
+
+```bash
+streamlit run app/streamlit_app.py
+```
+
+Open:
+
+```text
+http://localhost:8501
+```
+
+### 2. Real-Time Webcam Demo
+
+Live webcam inspection with ROI, object detection, smoothing, and on-demand Grad-CAM.
+
+```bash
+python webcam_demo.py --camera 0
+```
+
+Controls:
+
+```text
+q = quit | s = save frame | h = Grad-CAM | + / - = threshold
+```
+
+If camera index `0` does not work:
+
+```bash
+python webcam_demo.py --camera 1
+```
+
+### 3. FastAPI Inference API
+
+Image-upload API for model prediction.
+
+```bash
+uvicorn api.main:app --reload
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Use `POST /predict` to upload an image and get a JSON response.
+
+### 4. Dockerized API
+
+Run the FastAPI service inside Docker.
+
+```bash
+docker build -t defect-detection-api .
+docker run -p 8000:8000 defect-detection-api
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
 ## Key Highlights
 
 * Built a real-time OpenCV inspection system for bottle-cap defect detection.
@@ -712,11 +785,6 @@ Streamlit
 Grad-CAM
 ```
 
----
-
-## Suggested Resume Bullet
-
-Built an explainable real-time defect inspection prototype using PyTorch and OpenCV, identified domain shift between benchmark and live webcam data, collected a camera-specific calibration dataset, fine-tuned a ResNet18 model, added Grad-CAM explainability, and packaged the model as a Dockerized FastAPI inference service with a Streamlit demo UI.
 
 ---
 
